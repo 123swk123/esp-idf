@@ -39,7 +39,6 @@ static const char *TAG = "WEBSOCKET_CLIENT";
 #define WEBSOCKET_NETWORK_TIMEOUT_MS    (10*1000)
 #define WEBSOCKET_PING_TIMEOUT_MS       (10*1000)
 #define WEBSOCKET_EVENT_QUEUE_SIZE      (1)
-#define WEBSOCKET_SEND_EVENT_TIMEOUT_MS (1000/portTICK_RATE_MS)
 
 #define ESP_WS_CLIENT_MEM_CHECK(TAG, a, action) if (!(a)) {                                         \
         ESP_LOGE(TAG,"%s:%d (%s): %s", __FILE__, __LINE__, __FUNCTION__, "Memory exhausted");       \
@@ -112,10 +111,10 @@ static esp_err_t esp_websocket_client_dispatch_event(esp_websocket_client_handle
                                  WEBSOCKET_EVENTS, event,
                                  &event_data,
                                  sizeof(esp_websocket_event_data_t),
-                                 WEBSOCKET_SEND_EVENT_TIMEOUT_MS)) != ESP_OK) {
+                                 portMAX_DELAY)) != ESP_OK) {
         return err;
     }
-    return esp_event_loop_run(client->event_handle, WEBSOCKET_SEND_EVENT_TIMEOUT_MS);
+    return esp_event_loop_run(client->event_handle, 0);
 }
 
 static esp_err_t esp_websocket_client_abort_connection(esp_websocket_client_handle_t client)
@@ -382,9 +381,16 @@ esp_err_t esp_websocket_client_set_uri(esp_websocket_client_handle_t client, con
     }
 
 
-    if (puri.field_data[UF_PATH].len) {
+    if (puri.field_data[UF_PATH].len || puri.field_data[UF_QUERY].len) {
         free(client->config->path);
-        asprintf(&client->config->path, "%.*s", puri.field_data[UF_PATH].len, uri + puri.field_data[UF_PATH].off);
+        if (puri.field_data[UF_QUERY].len == 0) {
+            asprintf(&client->config->path, "%.*s", puri.field_data[UF_PATH].len, uri + puri.field_data[UF_PATH].off);
+        } else if (puri.field_data[UF_PATH].len == 0)  {
+            asprintf(&client->config->path, "/?%.*s", puri.field_data[UF_QUERY].len, uri + puri.field_data[UF_QUERY].off);
+        } else {
+            asprintf(&client->config->path, "%.*s?%.*s", puri.field_data[UF_PATH].len, uri + puri.field_data[UF_PATH].off,
+                    puri.field_data[UF_QUERY].len, uri + puri.field_data[UF_QUERY].off);
+        }
         ESP_WS_CLIENT_MEM_CHECK(TAG, client->config->path, return ESP_ERR_NO_MEM);
     }
     if (puri.field_data[UF_PORT].off) {
